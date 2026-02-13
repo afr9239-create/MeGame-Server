@@ -14,41 +14,53 @@ const io = new Server(server, {
     }
 });
 
-let players = [];
+// Храним ID игроков: { socketId: role }
+let players = {};
 
 io.on('connection', (socket) => {
-    // Добавляем игрока в список
-    players.push(socket.id);
-    console.log(`User connected: ${socket.id}. Total: ${players.length}`);
+    console.log(`Подключился: ${socket.id}`);
 
-    // Сразу отправляем всем актуальное кол-во игроков
-    io.emit('playerCount', players.length);
-
-    // Назначаем роль: первый — 1, второй — 2
-    if (players.length === 1) {
-        socket.emit('playerRole', 1);
-    } else if (players.length === 2) {
-        socket.emit('playerRole', 2);
+    // Назначаем роль
+    const activeRoles = Object.values(players);
+    let role = 0;
+    
+    if (!activeRoles.includes(1)) {
+        role = 1;
+    } else if (!activeRoles.includes(2)) {
+        role = 2;
     }
 
-    // Логика старта игры
+    if (role > 0) {
+        players[socket.id] = role;
+        socket.emit('playerRole', role);
+        console.log(`Назначена роль ${role} для ${socket.id}`);
+    }
+
+    // Рассылаем всем количество игроков
+    io.emit('playerCount', Object.keys(players).length);
+
+    // СТАРТ ИГРЫ
     socket.on('startGame', () => {
+        console.log('Команда СТАРТ получена');
         io.emit('gameStart');
     });
 
-    // Передача юнитов
+    // САМОЕ ВАЖНОЕ: Передача юнита
     socket.on('spawnUnit', (unitData) => {
+        // Сервер берет данные от одного и кидает ВСЕМ ОСТАЛЬНЫМ
         socket.broadcast.emit('spawnUnit', unitData);
+        console.log(`Юнит от игрока ${unitData.side} отправлен остальным`);
     });
 
+    // ОТКЛЮЧЕНИЕ
     socket.on('disconnect', () => {
-        players = players.filter(id => id !== socket.id);
-        console.log(`User disconnected. Remaining: ${players.length}`);
-        io.emit('playerCount', players.length);
+        delete players[socket.id];
+        io.emit('playerCount', Object.keys(players).length);
+        console.log(`Игрок отключился. Осталось: ${Object.keys(players).length}`);
     });
 });
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Сервер запущен на порту ${PORT}`);
 });
