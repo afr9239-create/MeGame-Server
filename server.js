@@ -1,66 +1,41 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const cors = require('cors');
+const path = require('path');
 
 const app = express();
-app.use(cors());
-
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
-});
+const io = new Server(server, { cors: { origin: "*" } });
 
-// Храним ID игроков: { socketId: role }
-let players = {};
+// Раздаем статические файлы из корня
+app.use(express.static(__dirname));
 
 io.on('connection', (socket) => {
-    console.log(`Подключился: ${socket.id}`);
+    socket.on('joinRoom', (roomName) => {
+        socket.join(roomName);
+        socket.currentRoom = roomName;
 
-    // Назначаем роль
-    const activeRoles = Object.values(players);
-    let role = 0;
-    
-    if (!activeRoles.includes(1)) {
-        role = 1;
-    } else if (!activeRoles.includes(2)) {
-        role = 2;
-    }
+        const room = io.sockets.adapter.rooms.get(roomName);
+        const numClients = room ? room.size : 0;
 
-    if (role > 0) {
-        players[socket.id] = role;
-        socket.emit('playerRole', role);
-        console.log(`Назначена роль ${role} для ${socket.id}`);
-    }
+        // Игрок 1 получает сторону 1, Игрок 2 сторону 2
+        socket.emit('playerRole', numClients);
+        io.to(roomName).emit('playerCount', numClients);
+    });
 
-    // Рассылаем всем количество игроков
-    io.emit('playerCount', Object.keys(players).length);
+    socket.on('spawnUnit', (data) => {
+        // Пересылаем данные только игрокам в той же комнате
+        socket.to(socket.currentRoom).emit('spawnUnit', data);
+    });
 
-    // СТАРТ ИГРЫ
     socket.on('startGame', () => {
-        console.log('Команда СТАРТ получена');
-        io.emit('gameStart');
+        io.to(socket.currentRoom).emit('gameStart');
     });
 
-    // САМОЕ ВАЖНОЕ: Передача юнита
-    socket.on('spawnUnit', (unitData) => {
-        // Сервер берет данные от одного и кидает ВСЕМ ОСТАЛЬНЫМ
-        socket.broadcast.emit('spawnUnit', unitData);
-        console.log(`Юнит от игрока ${unitData.side} отправлен остальным`);
-    });
-
-    // ОТКЛЮЧЕНИЕ
     socket.on('disconnect', () => {
-        delete players[socket.id];
-        io.emit('playerCount', Object.keys(players).length);
-        console.log(`Игрок отключился. Осталось: ${Object.keys(players).length}`);
+        console.log('User disconnected');
     });
 });
 
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => {
-    console.log(`Сервер запущен на порту ${PORT}`);
-});
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
