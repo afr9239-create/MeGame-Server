@@ -1,42 +1,36 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
+const io = require('socket.io')(process.env.PORT || 3000, {
+    cors: { origin: "*" }
+});
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
-
-const rooms = {}; // Хранилище данных комнат
+let waitingPlayer = null;
 
 io.on('connection', (socket) => {
-    console.log('Новое подключение:', socket.id);
+    console.log('New player:', socket.id);
 
-    socket.on('joinLobby', ({ roomId, nickname }) => {
-        socket.join(roomId);
-        
-        if (!rooms[roomId]) rooms[roomId] = [];
-        
-        // Добавляем игрока в список комнаты
-        rooms[roomId].push({ id: socket.id, nickname: nickname });
+    socket.on('findGame', () => {
+        if (waitingPlayer) {
+            // Создаем комнату для двоих
+            const roomId = waitingPlayer.id + '#' + socket.id;
+            socket.join(roomId);
+            waitingPlayer.join(roomId);
 
-        // Рассылаем всем в комнате обновленный список
-        io.to(roomId).emit('updatePlayerList', rooms[roomId]);
+            // Рассылаем роли (один сверху, другой снизу)
+            waitingPlayer.emit('startGame', { role: 1, room: roomId });
+            socket.emit('startGame', { role: 2, room: roomId });
+
+            waitingPlayer = null;
+        } else {
+            waitingPlayer = socket;
+            socket.emit('waiting', 'Searching for opponent...');
+        }
     });
 
-    socket.on('startGameRequest', (roomId) => {
-        io.to(roomId).emit('gameStarted');
+    socket.on('placeBuilding', (data) => {
+        // Пересылаем данные о постройке другому игроку в комнате
+        socket.to(data.room).emit('syncBuilding', data);
     });
 
     socket.on('disconnect', () => {
-        // Удаляем игрока из всех комнат при выходе
-        for (const roomId in rooms) {
-            rooms[roomId] = rooms[roomId].filter(p => p.id !== socket.id);
-            io.to(roomId).emit('updatePlayerList', rooms[roomId]);
-            if (rooms[roomId].length === 0) delete rooms[roomId];
-        }
+        if (waitingPlayer === socket) waitingPlayer = null;
     });
-});
-
-server.listen(process.env.PORT || 3000, () => {
-    console.log('Сервер War Castle 2.0 запущен!');
 });
