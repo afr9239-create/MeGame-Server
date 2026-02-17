@@ -3,9 +3,13 @@ const app = express();
 const http = require('http').createServer(app);
 const path = require('path');
 const io = require('socket.io')(http, {
-    cors: { origin: "*" }
+    cors: {
+        origin: "*", // Разрешаем всем подключаться
+        methods: ["GET", "POST"]
+    }
 });
 
+// Отдаем файлы из папки
 app.use(express.static(__dirname));
 
 app.get('/', (req, res) => {
@@ -17,9 +21,7 @@ let waitingPlayer = null;
 
 io.on('connection', (socket) => {
     onlineCount++;
-    console.log('Новое подключение. Всего:', onlineCount);
-    
-    // Рассылаем всем новое число игроков
+    console.log(`[SERVER] Игрок зашел. Всего: ${onlineCount}`);
     io.emit('onlineUpdate', onlineCount);
 
     socket.on('findGame', () => {
@@ -46,7 +48,8 @@ io.on('connection', (socket) => {
     });
 });
 
+// Render сам дает порт, или используем 3000
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, '0.0.0.0', () => {
-    console.log(`Сервер запущен на порту ${PORT}`);
+    console.log(`[OK] Сервер запущен на порту ${PORT}`);
 });
