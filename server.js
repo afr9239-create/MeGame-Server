@@ -2,35 +2,44 @@ const io = require('socket.io')(process.env.PORT || 3000, {
     cors: { origin: "*" }
 });
 
-let waitingPlayer = null;
+let waitingPlayers = []; // Очередь игроков
+let onlineCount = 0;
 
 io.on('connection', (socket) => {
-    console.log('New player:', socket.id);
+    onlineCount++;
+    io.emit('onlineUpdate', onlineCount); // Сообщаем всем об онлайне
+    console.log('Player connected. Online:', onlineCount);
 
     socket.on('findGame', () => {
-        if (waitingPlayer) {
-            // Создаем комнату для двоих
-            const roomId = waitingPlayer.id + '#' + socket.id;
+        // Проверяем, не ищет ли этот игрок уже игру
+        if (waitingPlayers.includes(socket)) return;
+
+        if (waitingPlayers.length > 0) {
+            const opponent = waitingPlayers.shift();
+            const roomId = opponent.id + socket.id;
+
+            opponent.join(roomId);
             socket.join(roomId);
-            waitingPlayer.join(roomId);
 
-            // Рассылаем роли (один сверху, другой снизу)
-            waitingPlayer.emit('startGame', { role: 1, room: roomId });
+            // Запуск игры для обоих
+            opponent.emit('startGame', { role: 1, room: roomId });
             socket.emit('startGame', { role: 2, room: roomId });
-
-            waitingPlayer = null;
+            
+            console.log('Match found! Room:', roomId);
         } else {
-            waitingPlayer = socket;
-            socket.emit('waiting', 'Searching for opponent...');
+            waitingPlayers.push(socket);
+            console.log('Player added to queue');
         }
     });
 
     socket.on('placeBuilding', (data) => {
-        // Пересылаем данные о постройке другому игроку в комнате
         socket.to(data.room).emit('syncBuilding', data);
     });
 
     socket.on('disconnect', () => {
-        if (waitingPlayer === socket) waitingPlayer = null;
+        onlineCount--;
+        io.emit('onlineUpdate', onlineCount);
+        waitingPlayers = waitingPlayers.filter(p => p.id !== socket.id);
+        console.log('Player disconnected');
     });
 });
