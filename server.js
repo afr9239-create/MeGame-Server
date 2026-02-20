@@ -1,27 +1,36 @@
-// Этот код сам определит, по какому адресу ты открыл игру
-const socket = io(window.location.origin, {
-    transports: ["polling", "websocket"],
-    reconnection: true,
-    reconnectionAttempts: Infinity
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+
+const app = express();
+const server = http.createServer(app);
+
+// Настройка CORS, чтобы игра могла подключиться к серверу Render
+const io = new Server(server, {
+    cors: {
+        origin: "*", 
+        methods: ["GET", "POST"]
+    }
 });
 
-const dot = document.getElementById('dot');
-const netText = document.getElementById('net-text');
+let onlinePlayers = 0;
 
-socket.on('connect', () => {
-    console.log("УРА! СОЕДИНЕНИЕ ЕСТЬ!");
-    dot.className = 'online'; // В CSS у нас .online
-    dot.style.background = '#00ff00';
-    netText.innerText = "ONLINE";
+io.on('connection', (socket) => {
+    onlinePlayers++;
+    console.log(`Игрок подключился. Всего в сети: ${onlinePlayers}`);
+
+    // Отправляем всем игрокам обновленное количество
+    io.emit('playerUpdate', onlinePlayers);
+
+    socket.on('disconnect', () => {
+        onlinePlayers--;
+        console.log(`Игрок отключился. Осталось: ${onlinePlayers}`);
+        io.emit('playerUpdate', onlinePlayers);
+    });
 });
 
-socket.on('connect_error', (err) => {
-    console.log("Ошибка связи:", err.message);
-    dot.style.background = 'red';
-    netText.innerText = "CONNECTING...";
-});
-
-// Проверка: получает ли клиент данные о других игроках
-socket.on('onlineUpdate', (c) => {
-    document.getElementById('counter').innerText = `ИГРОКОВ В СЕТИ: ${c}`;
+// Render сам назначит порт через process.env.PORT
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Сервер War Castle запущен на порту ${PORT}`);
 });
